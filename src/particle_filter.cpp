@@ -117,6 +117,34 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	// NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
 	//   implement this method and use it as a helper during the updateWeights phase.
 
+	// We will use NN over euclidian distances, this will be O(n^2) in complexity
+	// We assume that it is the predicted landmarks (ultimately, from the map) that have ids
+	// We assume that measurements do not have any assignment and we want to find it here
+	// We assume that there is always at least a match?
+	// We assume that we can modify the measurements by reference, signature suggest so too
+	if ( predicted.size() == 0 || observations.size() == 0 ) return;
+
+	for ( auto meas : observations )
+	{
+		std::vector<double> distances;
+		for ( auto landmark : predicted )
+		{
+			double x_diff = meas.x - landmark.x;
+			double y_diff = meas.y - landmark.y;
+			// We dont even care about the square root
+			double distance2 = x_diff * x_diff + y_diff * y_diff;
+			distances.push_back(distance2);
+		}
+		// Find smallest distance by sorting
+		auto min_dist = std::min_element(distances.begin(), distances.end());
+		int  index    = std::distance(distances.begin(), min_dist);
+
+		// And assign found best match predicted landmark to meas
+		meas.id = predicted[index].id;
+
+		// We could pop the landmark maybe? Complexity would be halved. I dunno.
+	}
+
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
