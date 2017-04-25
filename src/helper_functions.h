@@ -14,6 +14,8 @@
 #include <vector>
 #include "map.h"
 
+const double M_PI = 3.1415926535897932;
+
 /*
  * Struct representing one position/control measurement.
  */
