@@ -12,6 +12,8 @@
 
 #include "particle_filter.h"
 
+#include <cmath>
+
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// TODO: Set the number of particles. Initialize all particles to first position (based on estimates of 
 	//   x, y, theta and their uncertainties from GPS) and all weights to 1. 
@@ -23,6 +25,9 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 
 	particles.clear();
 	particles.resize(num_particles);
+
+	weights.clear();
+	weights.resize(num_particles);
 
 	std::default_random_engine gen;
 
@@ -52,7 +57,11 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 					<< " "
 					<< particles[idx].weight
 					<< std::endl;
+
+		weights[idx] = 1.0;
 	}
+
+
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -108,7 +117,6 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 					<< std::endl;
 
 	}
-
 }
 
 void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations) {
@@ -127,6 +135,8 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	for ( auto meas : observations )
 	{
 		std::vector<double> distances;
+		distances.clear();
+
 		for ( auto landmark : predicted )
 		{
 			double x_diff = meas.x - landmark.x;
@@ -140,13 +150,21 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 		int  index    = std::distance(distances.begin(), min_dist);
 
 		// And assign found best match predicted landmark to meas
-		meas.id = predicted[index].id;
+		// Should we do this? Or just return the index on the likely match?
+		//meas.id = predicted[index].id;
+		meas.id = index;
 
 		// We could pop the landmark maybe? Complexity would be halved. I dunno.
 	}
-
 }
 
+/*
+* @param sensor_range Range [m] of sensor
+* @param std_landmark[] Array of dimension 2 [standard deviation of range [m],
+*   standard deviation of bearing [rad]]
+* @param observations Vector of landmark observations
+* @param map Map class containing map landmarks
+*/
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
 		std::vector<LandmarkObs> observations, Map map_landmarks) {
 	// TODO: Update the weights of each particle using a mult-variate Gaussian distribution. You can read
@@ -160,6 +178,107 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   3.33. Note that you'll need to switch the minus sign in that equation to a plus to account 
 	//   for the fact that the map's y-axis actually points downwards.)
 	//   http://planning.cs.uiuc.edu/node99.html
+
+	// I do not like the map coordsys, I would rather work always in the veh coord system, if only because, by
+	// doing so, I can transform directly to the expected range and bearing, and so get the errors directly
+	// To do all this, we will also need to associate the landmarks in the map (the predicted landmarks, as
+	// suggested above, means that we want this association to be done in the veh sys) with the observations
+	// in the veh sys.
+
+	// So, at the beginning, ALL particles reside in the map system?
+	// And all landmarks also reside in the map system?
+	// And each vehicle has its own system given by x, y, psi
+
+	// Get all landmarks within sensor range, for each particle
+
+	for ( int idx = 0; idx < num_particles; idx++ )
+	{
+		Particle particle = particles[idx];
+
+		double x_p  = particle.x;
+		double y_p  = particle.y;
+		double a_p  = particle.theta;
+		//double id_p = particle.id;
+
+		std::vector<LandmarkObs> range_landmarks;
+
+		for ( auto landmark : map_landmarks.landmark_list )
+		{
+			float x_l = landmark.x_f;
+			float y_l = landmark.x_f;
+			long id_l = landmark.id_i;
+
+			// check if in range and push
+			double distance = std::sqrt( std::pow(x_p - x_l, 2) + std::pow(y_p - y_l, 2) );
+			if (distance < sensor_range)
+			{
+				LandmarkObs range_landmark = {id_l, x_l, y_l};
+				range_landmarks.push_back(range_landmark);
+			}
+		}
+
+		// Now that we have our list of landmarks in range for this particle, we must transform them all
+		// to the system of each vehicle, as observations are in that system, and we will be able to associate
+		// in there and get the weight. We suppose landmarks have 0 range
+
+		// We dont have eigen?! Really?
+		for ( auto landmark : range_landmarks )
+		{
+			// Transform all landmarks to vehicle pose, this will probably need adjustment
+			double x_l_m = landmark.x;
+			double y_l_m = landmark.y;
+			// We have the vehicle pose up at the beginning
+			// please note the sign inversions due to translation representation
+			// TODO: check all signs
+			landmark.x = x_l_m * cos(a_p) + y_l_m * sin(a_p) - x_p;
+			landmark.y = x_l_m * sin(a_p) - y_l_m * sin(a_p) - y_p;
+		}
+
+		// Now all our landmarks in the expected range are in the system of the particle (vehicle)
+		// All observations are also in this system
+		// Since we are using NN, as long as we have a map and observations all items will be
+		// matched, maybe very badly!
+		// This will set the id in observations to the matched index of the landmarks, so observations
+		// will be modified by reference
+		dataAssociation(range_landmarks, observations);
+
+		// Calculate the error now
+		double new_weight = 1.0;
+		for ( auto observation : observations )
+		{
+			// Observations and landmarks are still in x,y form. We will have to transform to
+			// expected range and bearing here
+
+			// First get the best landmark for the association, the index of the best landmark
+			// match should already be contained in the observation
+			// Note that we share types for the predicted landmarks, but this is only for
+			// convenience
+			auto matched_landmark = range_landmarks[observation.id];
+
+			double observed_range    = std::sqrt( std::pow(observation.x, 2) + std::pow(observation.y, 2) );
+			double observed_bearing  = atan2(observation.y, observation.x);
+			double predicted_range   = std::sqrt( std::pow(matched_landmark.x, 2) + std::pow(matched_landmark.y, 2) );
+			double predicted_bearing = atan2(matched_landmark.y, matched_landmark.x);
+
+			double std_range   = std_landmark[0];
+			double std_bearing = std_landmark[1];
+
+			// Ah, I miss eigen!
+			double diff_range = observed_range - predicted_range;
+			double diff_bearing = observed_bearing - predicted_bearing;
+
+			// Calculate the value then
+			double a   = - 0.5 * ( std::pow(diff_range, 2) / (std::pow(std_range, 2)) + std::pow(diff_bearing, 2) / (std::pow(std_bearing, 2)) );
+			double b   = std::sqrt( 2 * M_PI * (std_range * std_bearing ) );
+			double w_i = exp(a / b);
+
+			new_weight *= w_i;
+		}
+
+		// Assign new weight to particle
+		particles[idx].weight = new_weight;
+		weights[idx] = new_weight;
+	}
 }
 
 void ParticleFilter::resample() {
@@ -167,6 +286,18 @@ void ParticleFilter::resample() {
 	// NOTE: You may find std::discrete_distribution helpful here.
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
 
+	std::default_random_engine gen;
+	std::vector<Particle> new_particles;
+	new_particles.clear();
+	std::discrete_distribution<> distribution(weights.begin(), weights.end());
+
+	for (int idx = 0; idx < num_particles; idx++)
+	{
+		int chosen_index = distribution(gen);
+		new_particles.push_back(particles[chosen_index]);
+	}
+
+	particles = new_particles;
 }
 
 void ParticleFilter::write(std::string filename) {
