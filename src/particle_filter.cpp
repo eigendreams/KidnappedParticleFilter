@@ -20,8 +20,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
 
-	// We will have to assume that the number of particles was set beforehand, and not by us, as this is
-	// not part of the constructor!
+	if ( num_particles == 0) num_particles = 100;
 
 	particles.clear();
 	particles.resize(num_particles);
@@ -61,7 +60,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		weights[idx] = 1.0;
 	}
 
-
+	is_initialized = true;
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -72,23 +71,24 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 
 	std::default_random_engine gen;
 
+	// create distributions for all vars around particle to add noise later on
+	std::normal_distribution<double> dist_x	 (0, std_pos[0]);
+	std::normal_distribution<double> dist_y	 (0, std_pos[1]);
+	std::normal_distribution<double> dist_psi(0, std_pos[2]);
+
 	// Yay C++11 !, if you are using the distributions this is needed!
 	for ( auto particle : particles )
 	{
-		double x = particle.x;
-		double y = particle.y;
+		//double x = particle.x;
+		//double y = particle.y;
 		double theta = particle.theta;
 
-		// create distributions for all vars around particle to add noise later on
-		std::normal_distribution<double> dist_x	(x, 	 std_pos[0]);
-		std::normal_distribution<double> dist_y	(y, 	 std_pos[1]);
-		std::normal_distribution<double> dist_psi(theta, std_pos[2]);
-
 		// Predict particle movement
-		if ( abs(velocity) < 1e-3 )
+		if ( abs(yaw_rate) < 1e-3 )
 		{
-			particle.x += velocity * delta_t * cos(theta);
-			particle.y += velocity * delta_t * sin(theta);
+			particle.x 		+= velocity * delta_t * cos(theta);
+			particle.y 		+= velocity * delta_t * sin(theta);
+			particle.theta 	+= yaw_rate * delta_t;
 		}
 		else
 		{
@@ -96,7 +96,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 
 			particle.x 		+= vdivyawrate * ( sin(theta + yaw_rate * delta_t) - sin(theta) );
 			particle.y	 	+= vdivyawrate * ( cos(theta) - cos(theta + yaw_rate * delta_t) );
-			particle.theta 	+= theta + yaw_rate;
+			particle.theta 	+= yaw_rate * delta_t;
 		}
 
 		// add random gaussian noise
@@ -142,8 +142,8 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 			double x_diff = meas.x - landmark.x;
 			double y_diff = meas.y - landmark.y;
 			// We dont even care about the square root
-			double distance2 = x_diff * x_diff + y_diff * y_diff;
-			distances.push_back(distance2);
+			double distance = sqrt(std::pow(x_diff, 2) + std::pow(y_diff, 2));
+			distances.push_back(distance);
 		}
 		// Find smallest distance by sorting
 		auto min_dist = std::min_element(distances.begin(), distances.end());
@@ -229,9 +229,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			double y_l_m = landmark.y;
 			// We have the vehicle pose up at the beginning
 			// please note the sign inversions due to translation representation
-			// TODO: check all signs
-			landmark.x = x_l_m * cos(a_p) + y_l_m * sin(a_p) - x_p;
-			landmark.y = x_l_m * sin(a_p) - y_l_m * sin(a_p) - y_p;
+			// TODO: check all signs, check this conversion!!!
+			landmark.x = (x_l_m - x_p) * cos(a_p) + (y_l_m - y_p) * sin(a_p);
+			landmark.y = (y_l_m - y_p) * sin(a_p) - (x_l_m - x_p) * sin(a_p);
 		}
 
 		// Now all our landmarks in the expected range are in the system of the particle (vehicle)
@@ -267,10 +267,13 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			double diff_range = observed_range - predicted_range;
 			double diff_bearing = observed_bearing - predicted_bearing;
 
+			while (diff_bearing >  M_PI) diff_bearing -= 2 * M_PI;
+			while (diff_bearing < -M_PI) diff_bearing += 2 * M_PI;
+
 			// Calculate the value then
 			double a   = - 0.5 * ( std::pow(diff_range, 2) / (std::pow(std_range, 2)) + std::pow(diff_bearing, 2) / (std::pow(std_bearing, 2)) );
 			double b   = std::sqrt( 2 * M_PI * (std_range * std_bearing ) );
-			double w_i = exp(a / b);
+			double w_i = exp(a) / b;
 
 			new_weight *= w_i;
 		}
@@ -289,11 +292,11 @@ void ParticleFilter::resample() {
 	std::default_random_engine gen;
 	std::vector<Particle> new_particles;
 	new_particles.clear();
-	std::discrete_distribution<> distribution(weights.begin(), weights.end());
+	std::discrete_distribution<> sampler(weights.begin(), weights.end());
 
 	for (int idx = 0; idx < num_particles; idx++)
 	{
-		int chosen_index = distribution(gen);
+		int chosen_index = sampler(gen);
 		new_particles.push_back(particles[chosen_index]);
 	}
 
