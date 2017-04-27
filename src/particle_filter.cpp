@@ -20,7 +20,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
 
-	if ( num_particles == 0) num_particles = 100;
+	if ( num_particles == 0) num_particles = 400;
 
 	particles.clear();
 	particles.resize(num_particles);
@@ -77,32 +77,33 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	std::normal_distribution<double> dist_psi(0, std_pos[2]);
 
 	// Yay C++11 !, if you are using the distributions this is needed!
-	for ( auto particle : particles )
+	int particle_size = particles.size();
+	for ( int idx = 0; idx < particle_size; idx++ )
 	{
 		//double x = particle.x;
 		//double y = particle.y;
-		double theta = particle.theta;
+		double theta = particles[idx].theta;
 
 		// Predict particle movement
 		if ( abs(yaw_rate) < 1e-3 )
 		{
-			particle.x 		+= velocity * delta_t * cos(theta);
-			particle.y 		+= velocity * delta_t * sin(theta);
-			particle.theta 	+= yaw_rate * delta_t;
+			particles[idx].x 		+= velocity * delta_t * cos(theta);
+			particles[idx].y 		+= velocity * delta_t * sin(theta);
+			particles[idx].theta 	+= yaw_rate * delta_t;
 		}
 		else
 		{
 			double vdivyawrate = velocity / yaw_rate;
 
-			particle.x 		+= vdivyawrate * ( sin(theta + yaw_rate * delta_t) - sin(theta) );
-			particle.y	 	+= vdivyawrate * ( cos(theta) - cos(theta + yaw_rate * delta_t) );
-			particle.theta 	+= yaw_rate * delta_t;
+			particles[idx].x 		+= vdivyawrate * ( sin(theta + yaw_rate * delta_t) - sin(theta) );
+			particles[idx].y	 	+= vdivyawrate * ( cos(theta) - cos(theta + yaw_rate * delta_t) );
+			particles[idx].theta 	+= yaw_rate * delta_t;
 		}
 
 		// add random gaussian noise
-		particle.x 		+= dist_x(gen);
-		particle.y	 	+= dist_y(gen);
-		particle.theta 	+= dist_psi(gen);
+		particles[idx].x 		+= dist_x(gen);
+		particles[idx].y	 	+= dist_y(gen);
+		particles[idx].theta 	+= dist_psi(gen);
 
 		/*std::cout 	<< "Particle "
 					<< particle.id
