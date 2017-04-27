@@ -45,7 +45,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		particles[idx].theta	= dist_psi(gen);
 		particles[idx].weight   = 1.0;	// all particles start with the same weight, should it be so?
 
-		std::cout 	<< "Particle: "
+		/*std::cout 	<< "Particle: "
 					<< particles[idx].id
 					<< " "
 					<< particles[idx].x
@@ -55,7 +55,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 					<< particles[idx].theta
 					<< " "
 					<< particles[idx].weight
-					<< std::endl;
+					<< std::endl;*/
 
 		weights[idx] = 1.0;
 	}
@@ -104,7 +104,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 		particle.y	 	+= dist_y(gen);
 		particle.theta 	+= dist_psi(gen);
 
-		std::cout 	<< "Particle "
+		/*std::cout 	<< "Particle "
 					<< particle.id
 					<< " "
 					<< particle.x
@@ -114,7 +114,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 					<< particle.theta
 					<< " "
 					<< particle.weight
-					<< std::endl;
+					<< std::endl;*/
 
 	}
 }
@@ -132,15 +132,16 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	// We assume that we can modify the measurements by reference, signature suggest so too
 	if ( predicted.size() == 0 || observations.size() == 0 ) return;
 
-	for ( auto meas : observations )
+	int meas_size = observations.size();
+	for ( int idx = 0; idx < meas_size; idx++ )
 	{
 		std::vector<double> distances;
 		distances.clear();
 
 		for ( auto landmark : predicted )
 		{
-			double x_diff = meas.x - landmark.x;
-			double y_diff = meas.y - landmark.y;
+			double x_diff = observations[idx].x - landmark.x;
+			double y_diff = observations[idx].y - landmark.y;
 			// We dont even care about the square root
 			double distance = sqrt(std::pow(x_diff, 2) + std::pow(y_diff, 2));
 			distances.push_back(distance);
@@ -152,7 +153,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 		// And assign found best match predicted landmark to meas
 		// Should we do this? Or just return the index on the likely match?
 		//meas.id = predicted[index].id;
-		meas.id = index;
+		observations[idx].id = index;
 
 		// We could pop the landmark maybe? Complexity would be halved. I dunno.
 	}
@@ -202,11 +203,12 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
 		std::vector<LandmarkObs> range_landmarks;
 
+		int size_map = map_landmarks.landmark_list.size();
 		for ( auto landmark : map_landmarks.landmark_list )
 		{
-			float x_l = landmark.x_f;
-			float y_l = landmark.x_f;
-			long id_l = landmark.id_i;
+			double x_l = landmark.x_f;
+			double y_l = landmark.y_f;
+			int   id_l = landmark.id_i;
 
 			// check if in range and push
 			double distance = std::sqrt( std::pow(x_p - x_l, 2) + std::pow(y_p - y_l, 2) );
@@ -222,16 +224,17 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		// in there and get the weight. We suppose landmarks have 0 range
 
 		// We dont have eigen?! Really?
-		for ( auto landmark : range_landmarks )
+		int size_ranged = range_landmarks.size();
+		for ( int idx = 0; idx < size_ranged; idx++ )
 		{
 			// Transform all landmarks to vehicle pose, this will probably need adjustment
-			double x_l_m = landmark.x;
-			double y_l_m = landmark.y;
+			double x_l_m = range_landmarks[idx].x;
+			double y_l_m = range_landmarks[idx].y;
 			// We have the vehicle pose up at the beginning
 			// please note the sign inversions due to translation representation
 			// TODO: check all signs, check this conversion!!!
-			landmark.x = (x_l_m - x_p) * cos(a_p) + (y_l_m - y_p) * sin(a_p);
-			landmark.y = (y_l_m - y_p) * sin(a_p) - (x_l_m - x_p) * sin(a_p);
+			range_landmarks[idx].x = (x_l_m - x_p) * cos(a_p) + (y_l_m - y_p) * sin(a_p);
+			range_landmarks[idx].y = (y_l_m - y_p) * cos(a_p) - (x_l_m - x_p) * sin(a_p);
 		}
 
 		// Now all our landmarks in the expected range are in the system of the particle (vehicle)
@@ -243,7 +246,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		dataAssociation(range_landmarks, observations);
 
 		// Calculate the error now
-		double new_weight = 1.0;
+		double new_weight = 1;
+
+		int size_obs = observations.size();
 		for ( auto observation : observations )
 		{
 			// Observations and landmarks are still in x,y form. We will have to transform to
@@ -275,12 +280,12 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			double b   = std::sqrt( 2 * M_PI * (std_range * std_bearing ) );
 			double w_i = exp(a) / b;
 
-			new_weight *= w_i;
+			new_weight *= (w_i);
 		}
 
 		// Assign new weight to particle
-		particles[idx].weight = new_weight;
-		weights[idx] = new_weight;
+		particles[idx].weight = (new_weight);
+		weights[idx] = (new_weight);
 	}
 }
 
